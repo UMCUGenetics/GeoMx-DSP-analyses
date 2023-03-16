@@ -1,0 +1,27 @@
+<Header>
+FileVersion,0.02
+SoftwareVersion,"GeoMx_NGS_Pipeline_ 2.0.0"
+Date,2020-6-15
+</Header>
+
+<Scan_Attributes>
+ID,DSP-1012300040419-G-A01
+Plate_ID,1012300040419
+Well,A01
+</Scan_Attributes>
+
+<NGS_Processing_Attributes>
+SeqSetId,
+tamperedIni,No
+Raw,71097
+Trimmed,64770
+Stitched,1761
+Aligned,69
+umiQ30,0.9929
+rtsQ30,0.9897
+</NGS_Processing_Attributes>
+
+
+<Code_Summary>
+RTS0022066,1
+</Code_Summary>
