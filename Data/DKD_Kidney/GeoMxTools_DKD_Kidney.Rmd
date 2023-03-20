@@ -108,14 +108,14 @@ library(limma)
 library(ggalluvial)
 library(scater)
 
-#BiocManager::install("sva")
+BiocManager::install("sva")
 library(sva)
 
 #BiocManager::install("preprocessCore") #quantile norm
 library(preprocessCore)
 
 #install.packages("Polychrome") #Get colors
-library(Polychrome)
+#library(Polychrome)
 
 
 library(infercnv) # CNV
@@ -130,6 +130,7 @@ library(tidytree)
 ```{r loading_base_data}
 # Reference the main folder 'file.path' containing the sub-folders with each data file type:
 datadir<-file.path("L:/pkloosterman/Github/DKD_Kidney/")
+datadir<-file.path("E:/DKD_Kidnet/")
 ```
 
 To locate a specific file path replace the above line with datadir \<-
@@ -2482,6 +2483,68 @@ legend("center",
        legend = c(legendnames, "Cell type", rev(names(col))),
 )
 ```
+
+## Boxplots
+
+Boxplot per cell from the spatial deconvolution. Choose your annotation in which you want to compare (ANN). 
+The annotation will be divided in conditions and each cell with have a boxplot which include the abundance score of each condition.
+A statistical test has been added inside the boxplot to check for significance. Feel free to chance the test to fit the data.
+
+significance code         p-value
+   ***                 [0, 0.001]
+    **              (0.001, 0.01]
+     *               (0.01, 0.05]
+     .                (0.05, 0.1]
+                         (0.1, 1] 
+
+```{r fig.height=40, fig.width=40, warning=FALSE}
+ANN <- "ANN1" # ANN column with conditions
+if (length(unique(target_Data[[ANN]])) > 2) {
+  test <- "kruskal.test"
+} else {
+  test <- "wilcox.test"
+}
+
+res_filter <- res[!res@phenoData@data[["beta"]]==0]
+res_filter <- as.data.frame(res_filter$beta)
+res_filter[res_filter == 0] <- NA
+boxplot_prep <- res_filter[ , colSums(is.na(res_filter)) < nrow(res_filter)] 
+
+boxplot_prep$condition <- rownames(boxplot_prep)
+
+for (value in unique(target_Data[[ANN]])) {
+  con <- rownames(pData(target_Data)[pData(target_Data)[[ANN]] == value,])
+  boxplot_prep$condition[boxplot_prep$condition %in% con] <- value
+}
+
+boxplot <- melt(boxplot_prep)
+
+# function for number of observations 
+give.n <- function(x){
+  return(data.frame(y = -1, label = paste0("n = ",length(x))))
+ #return(c(y = median(x)*1.05, label = length(x))
+# experiment with the multiplier to find the perfect position
+}
+
+ggplot(boxplot, aes(factor(condition), value, fill = condition)) + 
+  geom_boxplot() + 
+  geom_jitter(position=position_jitter(w=0.1,h=0.1)) +
+  facet_wrap(~variable, scale="free", ncol = 5) +
+  theme(text = element_text(size = 20)) +
+  rotate_x_text(angle = 45) +
+  labs(
+    title = "Spatial Deconvolution",
+    x = "Conditions",
+    y = "Abuncance score") + 
+  stat_compare_means(method = test, label.y = -3, size=5) + 
+  stat_compare_means(label = "p.signif", method = "t.test",
+                     ref.group = ".all.", hide.ns = TRUE, size=5) +
+  stat_summary(fun.data = give.n, geom = "text", size = 5)
+
+
+#stat_compare_means(size=5)
+```
+
 
 # 11 CNV
 Copy Number Variation analysis with the R software package inferCNV (https://github.com/broadinstitute/inferCNV/wiki).
