@@ -2557,8 +2557,17 @@ signature between the ROIs.
 
 # 10.1 Set up adjusted functions
 
+Three original functions have been adjusted to accept client data.
+
+addPlottingFactor has a built in check to see if the sample IDs completely match. To do this, the function grabs sample IDs from the GeoMx DSP object with sData() and making it a matrix.
+This causes an error because sData(target_data) returns an object that has the wrong dimensions for as.matrix to work. 
+Due to this part being optional it can be skipped to make this function work.
+
+parseOverlayAttrs and annotMatching work under the impression that the ROI labels are numeric (001, 002, etc). With the client data, this isnt the case.
+Luckily, this seems to be an overcorrection for specific nanoString data and the numeric step can be skipped.
+
 ```{r addPlottingfactor}
-add <-  function(overlay, annots, plottingFactor, countMatrix = "exprs"){
+addPlottingFactor2 <-  function(overlay, annots, plottingFactor, countMatrix = "exprs"){
         if(!is(overlay,"SpatialOverlay")){
             stop("overlay must be a SpatialOverlay object")
         }
@@ -2584,16 +2593,10 @@ add <-  function(overlay, annots, plottingFactor, countMatrix = "exprs"){
         gxtSamples <- gsub(".dcc", "", rownames(sData(annots)))
 
         # if(any(!samples %in% gxtSamples)){
-        #   print("A")
-        # 
-        #   #sampIDs <- which(apply(sData(as.data.frame(annots2)), 2, function(x){any(samples %in% x)}))                   
         #   sampIDs <- which(apply(as.matrix(sData(annots)), 2, function(x){any(samples %in% x)}))
-        #   print(sampIDs)
-        #   print("B")
         #   if(length(sampIDs) == 0){
         #       stop("Sample IDs in SpatialOverlay do not match given annots")
         #   }
-        #   
         #   gxtSamples <- sData(annots)[[sampIDs]]
         # }
         
@@ -2706,16 +2709,14 @@ parseOverlayAttrs2 <- function(omexml, annots, labworksheet){
     
     AOIattrs <- NULL
     a <- NULL
-    #print(ROIs)
+
     # Time trial with lapply showed minimal time difference 
     for(ROI in names(ROIs)){
         ROInum <- ROIs[[ROI]]$AnnotationRef
         ROInum <- as.numeric(gsub("Annotation:", "", ROInum))
         
-        #print(ROInum) #numbers
         #ROInum <- as.numeric(omexml$StructuredAnnotations[ROInum]$XMLAnnotation$Value$ChannelThresholds$RoiName)
         ROInum <- omexml$StructuredAnnotations[ROInum]$XMLAnnotation$Value$ChannelThresholds$RoiName
-        #print(ROInum) #NA
         
         ROI <- ROIs[[ROI]]$Union
         
@@ -2774,45 +2775,48 @@ parseOverlayAttrs2 <- function(omexml, annots, labworksheet){
 
 # 10.2 Load SpatialOverlay Object
 
+Due to the requirement of adjusting functions, the SpatialOveray object has to be created by calling a few functions instead of calling the main function.
+
 ```{r Load SpatialOverlay object, echo=FALSE}
 # Load files. Select the right sheet.
 file <- read_excel(SampleAnnotationFile, sheet = "trimmed_set")
-  
+slides <- unique(file$`slide name`[!file$`slide name` == "No Template Control"])
+
 slide_list <- c()
 for (slide in unique(file$`slide name`)) {
   tifFile <- paste(datadir,"/OMETIFF/", slide, ".ome.tiff", sep = "")
   print(tifFile)
+  
+  # Check if OMETIFF files exist, skip if not.
   if (!file.exists(tifFile)){next}
   
+  # Grab info from the right slide
   annots <- file[file$`slide name` == slide,]
-  annots$ROILabel <- annots$roi
-  annots$ROILabel <- gsub('"', '', annots$ROILabel)
-  annots$ROILabel <- gsub('=', '', annots$ROILabel)
+  annots$ROILabel <- gsub('"', '',
+                     gsub('=', '', 
+                     annots$roi))
   
+  # patialOmicsOverlay funtions
   xml <- xmlExtraction(ometiff = tifFile)
-  
   AOIattrs <- parseOverlayAttrs2(omexml = xml, annots = annots, labworksheet = TRUE)
-  
   scan_metadata <- parseScanMetadata(omexml = xml)
+  
+  # Correcting values to make sure it gets passed.
   if(any(meta(AOIattrs)$Segmentation == "Segmented")){
       scan_metadata[["Segmentation"]] <- "Segmented"
   }else{
       scan_metadata[["Segmentation"]] <- "Geometric"
   }
   
-  assign(paste("img_", slide, sep = ""),createCoordFile(SpatialOverlay(slideName = slide,
-                       scanMetadata = scan_metadata,
-                       overlayData = AOIattrs,
-                       workflow = list(
-                                       outline=outline,
-                                       scaled=FALSE)),
-                       outline = FALSE))
+  # Assign variables to SpatialOmicsOverlay objects
+  assign(paste("img_", slide, sep = ""),createCoordFile(SpatialOverlay(slideName = slide, scanMetadata = scan_metadata,
+                       overlayData = AOIattrs, workflow = list(outline=outline, scaled=FALSE)), outline = FALSE))
   
   assign(paste("img_", slide, sep = ""),addImageOmeTiff(overlay = get(paste("img_", slide, sep = "")), ometiff = tifFile, res=6))
   
   slide_list <- c(slide_list, get(paste("img_", slide, sep = "")))
-  
 }
+slide_list <- setNames(slide_list, slides)
 ```
 
 The whole slide images with the ROIs highlighted and its Spatial Deconvolution. 
@@ -2821,9 +2825,6 @@ If you are looking for the spatial deconvolution of specific cells, add those ce
 
 ```{r Plot whole slide image, fig.width=25,fig.height=30, out.width="50%"}
 #########PARAMETERS########
-# Custom save order if list order deviates 
-order <- c("hu_kidney_002","hu_kidney_003","hu_kidney_004","hu_kidney_001")
-
 # Choose deconvolution groups
 #cell_param <- c(colnames(res$beta))  # all groups
 cell_param <- c("Neutrophil", "Fibroblast", "NK.cell", "B.cell")
@@ -2833,22 +2834,15 @@ cell_param <- c("Neutrophil", "Fibroblast", "NK.cell", "B.cell")
 P36 = createPalette(length(cell_param),  c("#ff0000", "#00ff00", "#0000ff"))
 
 # Plot object with deconvolution
-counter=0
-
 for (slide in slide_list) {
-  counter = counter + 1
-  #plot(plotSpatialOverlay(overlay = slide_list[[counter]], hiRes = FALSE, legend = FALSE, corner = "bottomright", 
-  #                 scaleBarWidth = 0.5, textDistance = 5, scaleBarColor = "white",
-  #                 fluorLegend = TRUE) + ggplot2::labs(title = paste("Whole slide OME-TIFF", slideName(slide))))
-  
   # Get x and y limitations for florets
-  xlim_1 <- max(res@phenoData@data$x[res@phenoData@data$slide == slideName(slide_list[[counter]])])
-  xlim_2 <- min(res@phenoData@data$x[res@phenoData@data$slide == slideName(slide_list[[counter]])])
-  ylim_1 <- max(res@phenoData@data$y[res@phenoData@data$slide == slideName(slide_list[[counter]])])
-  ylim_2 <- min(res@phenoData@data$y[res@phenoData@data$slide == slideName(slide_list[[counter]])])
+  xlim_1 <- max(res@phenoData@data$x[res@phenoData@data$slide == slideName(slide)])
+  xlim_2 <- min(res@phenoData@data$x[res@phenoData@data$slide == slideName(slide)])
+  ylim_1 <- max(res@phenoData@data$y[res@phenoData@data$slide == slideName(slide)])
+  ylim_2 <- min(res@phenoData@data$y[res@phenoData@data$slide == slideName(slide)])
   
   # filter on slide
-  ind <- pData(res)$slide_name == order[counter]
+  ind <- pData(res)$slide_name == slideName(slide)
   res_ind <- res[,ind]
   res_filter <- res_ind[!res_ind@phenoData@data[["beta"]]==0]
   
@@ -2860,10 +2854,10 @@ for (slide in slide_list) {
   #slide_list[[counter]] <- flipY(slide_list[[counter]])  # Command out when rerunning
   
   # Save the image and its legend and draw it with ggdraw for better formatting
-  fluor <- fluorLegend(overlay = slide_list[[counter]], nrow = 4, textSize = 15, alpha = 0.25)
-  im <- plotSpatialOverlay(overlay = slide_list[[counter]], legend = FALSE, hiRes = FALSE, corner = "bottomright", 
+  fluor <- fluorLegend(overlay = slide, nrow = 4, textSize = 15, alpha = 0.25)
+  im <- plotSpatialOverlay(overlay = slide, legend = FALSE, hiRes = FALSE, corner = "bottomright", 
                      scaleBarWidth = 0.5, textDistance = 5, scaleBarColor = "white", image = TRUE) + 
-    ggplot2::labs(title = paste("Whole slide OME-TIFF", slideName(slide_list[[counter]])))
+    ggplot2::labs(title = paste("Whole slide OME-TIFF", slideName(slide)))
   
   print(cowplot::ggdraw() +
     cowplot::draw_plot(im, x = 0, y = 0) +
@@ -2876,20 +2870,16 @@ for (slide in slide_list) {
     x = res_ind@phenoData@data$x,# + 40000,
     y = res_ind@phenoData@data$y,
     col = P36,
-    #col = 1:length(rownames(t(a$beta))),
     #xlim = c(0,xlim+40000),
     #ylim = c(0,ylim),
-    #b = t(res_filter$beta),
     b = t(values),
     rescale.by.sqrt = TRUE,
     add = TRUE,
     cex = 1, xlab = "", ylab = "")
   
   legend("right",
-         #fill = 1:length(rownames(t(a$beta))),
          fill = P36,
          legend = rownames(t(values)), cex = 3)
-         #legend = rownames(t(res_filter$beta)), cex = 1.5)
  
   abline(h=ylim_2-1000, col = "black")
   abline(h=ylim_1+1000, col = "black")
@@ -2898,27 +2888,28 @@ for (slide in slide_list) {
 
 # 10.3 Add plotting factors
 
-To see the specific genes or other areas you want to highlight, a
-plotting factor has to be added.
-Zoom into biological regions or regions under a certain condition with the param_zoom. Only available with conditions that include whole ROI's. You CANNOT zoom into what happens inside a ROI. Use the param_ANN to provide the ANN column in which contain the zoom values.
+To see the specific genes or other areas you want to highlight, a plotting factor has to be added.
+
+Zoom into biological regions or regions under a certain condition with the param_zoom_value. Only available with conditions that include whole ROI's. You CANNOT zoom into what happens inside a ROI. Use the param_ANN to provide the ANN column that contains the zoom values.
 Color the gene-expression on the slide image with param_gene. You can also use an entire ANN column to color those values.
 
 ```{r}
 #########PARAMETERS########
-param_zoom <- "Proximal convoluted tubule"
+param_zoom_value <- "Proximal convoluted tubule"
 param_ANN <- "ANN2"
 param_gene <- "PODXL"
 ###########################
 
 # Add plotting factors
-counter=0
 for (slide in slide_list){
-  counter = counter + 1
-  slide_list[[counter]] <- add(overlay = slide_list[[counter]], annots = target_Data, plottingFactor = param_gene)
-  slide_list[[counter]] <- add(overlay = slide_list[[counter]], annots = target_Data, plottingFactor = param_ANN)
+  slide_list[[slideName(slide)]] <- addPlottingFactor2(overlay = slide, annots = target_Data, plottingFactor = param_gene)
+  slide_list[[slideName(slide)]] <- addPlottingFactor2(overlay = slide, annots = target_Data, plottingFactor = param_ANN)
 }
 
-#img_overlay <- add(overlay = img_overlay, annots = target_Data, plottingFactor = "ANN1")
+# Choose sample ids to zoom into. Grabs sample IDs that fall under the param_zoom_value condition.
+samps <- target_Data@protocolData@data$SampleID[target_Data@phenoData@data %>% select(all_of(param_ANN)) == param_zoom_value]
+
+# Show plotting factors as table
 #plotFactors(slide_list[[1]])
 
 # Get mean for midpoint reference
@@ -2927,35 +2918,92 @@ for (slide in slide_list){
 
 # 10.4 Plot zoomed slide image
 
-Here is an example of an image zoomed in on the ROIs "Proximal
-convoluted tubule" and colored by the genexpression of "PODXL".
+cropSamples automatically crops the image around the ROIs given. Other ROIs in the cropped image can be kept in or ignored. Below we will crop to only ROIs that are given, hiding ROIs profiled which are not. Setting sampsOnly = TRUE hides the non-given ROIs which are within the plotted region.
 
 ```{r plot zoomed slide image}
-# Choose sample ids to zoom into
-#samps <- target_Data@protocolData@data$SampleID[target_Data@phenoData@data$ANN2 == param_zoom]
-samps <- target_Data@protocolData@data$SampleID[target_Data@phenoData@data %>% select(all_of(param_ANN)) == param_zoom ]
-
-counter=0
 # Crop the data around chosen sample ids
+#counter=0
 for (slide in slide_list){
-  counter = counter + 1
-  #assign(paste("Slide", counter, "Crop", sep = ""),cropSamples(overlay = slide_list[[counter]], sampleIDs = samps, sampsOnly = TRUE))
-  assign(paste("Slide", counter, "Crop", sep = ""),cropSamples(overlay = slide_list[[counter]], sampleIDs = samps, sampsOnly = TRUE))
-}
-#img_overlayCrop <- cropSamples(overlay = slide_list[[1]], sampleIDs = samps, sampsOnly = TRUE)
+  #counter = counter + 1
+  assign(paste(slideName(slide), "Crop", sep = ""),cropSamples(overlay = slide, sampleIDs = samps, sampsOnly = TRUE))
 
-counter=0
-# Plot object with color gradient for gene expr data
-for (slide in slide_list){
-  counter = counter + 1
-  plot(plotSpatialOverlay(overlay = get(paste("Slide", counter, "Crop", sep = "")), colorBy = param_gene, corner = "bottomright", 
-                     scaleBarWidth = 0.5, textDistance = 5, scaleBarColor = "white"
-                     ) + ggplot2::scale_fill_gradient2(low = "grey", high = "purple",  mid = "yellow") + ggplot2::labs(title = paste("Zoomed slide OME-TIFF", slideName(slide))))
+  plot(plotSpatialOverlay(
+    overlay = get(paste(slideName(slide), "Crop", sep = "")), 
+    colorBy = param_gene, 
+    corner = "bottomright", 
+    scaleBarWidth = 0.5, 
+    textDistance = 5, 
+    scaleBarColor = "white") + 
+      ggplot2::scale_fill_gradient2(low = "grey", high = "purple",  mid = "yellow") + 
+      ggplot2::labs(title = paste("Zoomed slide OME-TIFF", slideName(slide))))
 }
-
-# get(paste("Slide", counter, "Crop", sep = ""))
 ```
 
+```{r Plot whole slide image, fig.width=10,fig.height=10, out.width="50%"}
+#########PARAMETERS########
+# Choose deconvolution groups
+cell_param <- c(colnames(res$beta))  # all groups
+#cell_param <- c("Neutrophil", "Fibroblast", "NK.cell", "B.cell")
+###########################
+
+# Create colors for deconvolution
+P36 = createPalette(length(cell_param),  c("#ff0000", "#00ff00", "#0000ff"))
+
+# Plot object with deconvolution
+for (slide in slide_list) {
+  # filter on slide
+  ind <- pData(res)$slide_name == slideName(slide)
+  res_ind <- res[,ind]
+  res_filter <- res_ind[!res_ind@phenoData@data[["beta"]]==0]
+  
+  # Get x and y limitations for florets
+  x1 <- max(get(paste(slideName(slide), "Crop", sep = ""))@overlayData@position[["X"]])
+  x2 <- min(get(paste(slideName(slide), "Crop", sep = ""))@overlayData@position[["X"]])
+  y1 <- max(get(paste(slideName(slide), "Crop", sep = ""))@overlayData@position[["Y"]])
+  y2 <- min(get(paste(slideName(slide), "Crop", sep = ""))@overlayData@position[["Y"]])
+  
+  # filter on cell choice
+  df <- as.data.frame(res_filter$beta)
+  values <- df[cell_param]
+  
+  # Flip y coords to match deconvolution
+  #slide_list[[counter]] <- flipY(slide_list[[counter]])  # Command out when rerunning
+  
+  # Save the image and its legend and draw it with ggdraw for better formatting
+  fluor <- fluorLegend(overlay = get(paste(slideName(slide), "Crop", sep = "")), nrow = 4, textSize = 5, alpha = 0.25)
+  im <- plotSpatialOverlay(overlay = get(paste(slideName(slide), "Crop", sep = "")), legend = FALSE, hiRes = FALSE, corner = "bottomright", 
+                     scaleBarWidth = 0.5, textDistance = 5, scaleBarColor = "white", image = TRUE) + 
+    ggplot2::labs(title = paste("Whole slide OME-TIFF", paste(slideName(slide), "Crop", sep = "")))
+  
+  print(cowplot::ggdraw() +
+    cowplot::draw_plot(im, x = 0, y = 0) +
+    cowplot::draw_plot(fluor, scale = 0.15, x = 0.45, y = 0)) #+ #, scale = 0.12, x = -0.3, y = -0.25)
+  
+  # Prepare plot space for florets including legend
+  opar <- par(no.readonly = TRUE)
+  par(mar = c(5, 5, 4, 20))
+  
+  florets(
+    x = get(paste(slideName(slide), "Crop", sep = ""))@overlayData@position[["X"]],
+    y = get(paste(slideName(slide), "Crop", sep = ""))@overlayData@position[["Y"]],
+    col = P36,
+    xlim = c(x2,x1),
+    ylim = c(y1,y2),
+    b = t(values),
+    rescale.by.sqrt = TRUE,
+    add = FALSE,
+    cex = 1, xlab = "", ylab = "")
+  
+  legend("right",
+         inset = c(-0.70, 0),
+         fill = P36,
+         legend = rownames(t(values)), 
+         cex = 1,
+         xpd = TRUE)
+  
+ on.exit(par(opar))
+}
+```
 
 # 11 Code & Versions
 
