@@ -108,7 +108,7 @@ library(limma)
 library(ggalluvial)
 library(scater)
 
-BiocManager::install("sva")
+#BiocManager::install("sva")
 library(sva)
 
 #BiocManager::install("preprocessCore") #quantile norm
@@ -131,7 +131,7 @@ library(ggpubr)
 ```{r loading_base_data}
 # Reference the main folder 'file.path' containing the sub-folders with each data file type:
 datadir<-file.path("L:/pkloosterman/Github/DKD_Kidney/")
-datadir<-file.path("E:/DKD_Kidnet/")
+#datadir<-file.path("E:/DKD_Kidnet/")
 ```
 
 To locate a specific file path replace the above line with datadir \<-
@@ -396,11 +396,15 @@ QC_histogram <- function(assay_data = NULL,
 
 ## Trimmed
 
+% Trimmed sequencing reads: segments below the QC parameters are removed.
+
 ```{r}
 QC_histogram(sData(Data), "Trimmed (%)", col_by, QC_params$percentTrimmed)
 ```
 
 ## Stiched (%)
+
+% Stiched sequencing reads: segments below the QC parameters are removed.
 
 ```{r}
 QC_histogram(sData(Data), "Stitched (%)", col_by, QC_params$percentStitched)
@@ -408,11 +412,15 @@ QC_histogram(sData(Data), "Stitched (%)", col_by, QC_params$percentStitched)
 
 ## Aligned (%)
 
+% Aligned sequencing reads: segments below the QC parameters are removed.
+
 ```{r}
 QC_histogram(sData(Data), "Aligned (%)", col_by,QC_params$percentAligned)
 ```
 
 ## Sequencing Saturation (%) {.active}
+
+% Sequencing saturation ([1-deduplicated reads/aligned reads]%): segments below the QC parameter require additional sequencing to capture full sample diversity and are not typically analyzed until improved.
 
 ```{r}
 QC_histogram(sData(Data), "Saturated (%)", col_by, QC_params$percentSaturation) +
@@ -422,17 +430,23 @@ QC_histogram(sData(Data), "Saturated (%)", col_by, QC_params$percentSaturation) 
 
 ## Area
 
+Area: generally correlates with nuclei; a strict cutoff is not generally applied based on area.
+
 ```{r}
 QC_histogram(sData(Data), "area", col_by, QC_params$minArea, scale_trans = "log10")
 ```
 
 ## Nuclei count
 
+Nuclei: >100 nuclei per segment is generally recommended; however, this cutoff is highly study/tissue dependent and may need to be reduced; what is most important is consistency in the nuclei distribution for segments within the study.
+
 ```{r}
 QC_histogram(sData(Data), "nuclei", col_by, QC_params$minNuclei)
 ```
 
 ## DuplicationRate
+
+Show the percentage of duplicated reads per raw reads.
 
 ```{r}
 ggplot(pData(protocolData(Data)),
@@ -446,6 +460,10 @@ ggplot(pData(protocolData(Data)),
 ```
 
 ## Negprobes vs Endogenous
+
+Compare Negprobes vs Endogenous expression to see if the endogenous (real) probes 
+are significantly higher than Negprobes. This means that there is a 
+high signal-to-noise ratio.
 
 ```{r plot_negprobe_data, fig.width=10,fig.height=5}
 tmp_target_Data <- aggregateCounts(Data)
@@ -482,6 +500,8 @@ plot_grid(plotlist=pl, nrow=2, align='v')
 
 ## Neg_probe reads compared to raw_reads
 
+Show the difference between deduplicated reads and negative control reads. It is expected that deduplicated reads are substantially higher than negative control reads.
+
 ```{r}
 
 # make background total neg probe count
@@ -503,6 +523,8 @@ ggplot(df,aes(fill=variable,y=value,x=aoi)) +
 
 ## Duplicated reads vs Background
 
+Compare duplicated reads and background noise to show that the reads significantly duplicated and thus checked to avoid the questioning about the validity of the reads.
+
 ```{r}
 # get dcc per plate. sum negprobe counts/dcc/plate
 ggplot(pData(protocolData(Data)),
@@ -520,6 +542,8 @@ ggplot(pData(protocolData(Data)),
 
 ## Duplicated reads vs ROIarea
 
+See if all ROIs contain duplicated reads for validity.
+
 ```{r, fig.width=15,fig.height=5}
 temp_df<-cbind(pData(Data),pData(protocolData(Data)),dcc=rownames(pData(Data)))
 
@@ -535,6 +559,8 @@ ggplot(temp_df,
 
 ## Duplicated reads vs nuclei
 
+Show the amount of deduplicated reads per nuclei.
+
 ```{r, fig.width=15,fig.height=5}
 temp_df<-cbind(pData(Data),pData(protocolData(Data)),dcc=rownames(pData(Data)))
 
@@ -549,6 +575,8 @@ ggplot(temp_df,
 ```
 
 # 4.3 Process Negative GeoMeans
+
+Negative Count: this is the geometric mean of the several unique negative probes in the GeoMx panel that do not target mRNA and establish the background count level per segment; segments with low negative counts (1-10) are not necessarily removed but may be studied closer for low endogenous gene signal and/or insufficient tissue sampling.
 
 ```{r}
 # Calculate the negative geometric means for each module
@@ -613,6 +641,19 @@ datatable(aggregate(undersat, by=list(undersat$SampleID),paste,collapse=";"),
             buttons = c('copy', 'csv', 'excel', 'pdf', 'print')
           )
 )}
+```
+Show the reasons why the AOIs fail critical QCs.
+
+```{r info_list_failures}
+if(nrow(undersat)> 0) {
+
+datatable(aggregate(undersat$QCFlags, by=list(undersat$SampleID),paste,collapse=";"),
+          extensions = 'Buttons', options = list (
+            dom = 'Bftrip',
+            buttons = c('copy', 'csv', 'excel', 'pdf', 'print')
+          )) %>%
+    formatStyle(columns = colnames(undersat$QCFlags), backgroundColor = styleEqual("TRUE", "#850000"), color = styleEqual("TRUE", "white")) 
+  }
 ```
 
 Subsetting our dataset has removed samples which did not pass QC
@@ -858,6 +899,11 @@ Plot detection rate
 
 ```{r plot_det_rate}
 plot_detect <- data.frame(Freq = c(1, 5, 10, 20, 30, 50))
+
+# Manual gene cut-off
+cutoff <- 5
+cutoff <- which(sapply(plot_detect$Freq, FUN=function(X) cutoff %in% X)) + 0.5 # Select step from plot_detect. 1 = 1, 5 = 2, 10 = 3, etc. +0.5 to dodge bin.
+
 plot_detect$Number <-
   unlist(lapply(c(0.01, 0.05, 0.1, 0.2, 0.3, 0.5),
                 function(x) {sum(fData(target_Data)$DetectionRate >= x)}))
@@ -868,6 +914,12 @@ ggplot(plot_detect, aes(x = as.factor(Freq), y = Rate, fill = Rate)) +
   geom_bar(stat = "identity") +
   geom_text(aes(label = formatC(Number, format = "d", big.mark = ",")),
             vjust = 1.6, color = "black", size = 4) +
+  
+  geom_vline(xintercept = 3.5, color = "red") +
+  geom_vline(xintercept = cutoff, color = "red") +
+  annotate(x=3.5,y=0.1,label="Default cut-off",size=3,geom="label") +
+  annotate(x=cutoff,y=0.1,label="Manual cut-off",size=3,geom="label") +
+  
   scale_fill_gradient2(low = "orange2", mid = "lightblue",
                        high = "dodgerblue3", midpoint = 0.65,
                        limits = c(0,1),
@@ -879,8 +931,8 @@ ggplot(plot_detect, aes(x = as.factor(Freq), y = Rate, fill = Rate)) +
        y = "Genes Detected, % of Panel > LOQ")
 ```
 
-Subset to target genes detected in at least 10% of the samples. Also
-manually include the negative control probe, for downstream use
+Subset to target genes detected in at least a manual percentage of the samples with a default of 10%. Also
+manually include the negative control probe, for downstream use.
 
 ```{r subset_to_10p_detected_genes}
 # default=0.1
@@ -920,6 +972,20 @@ the negative control probes in the data. Ideally, there should be a
 separation between these two values to ensure we have stable measure of
 Q3 signal. If you do not see sufficient separation between these values,
 you may consider more aggressive filtering of low signal segments/genes.
+
+Q3 and quantile normalization are radically different in their approach. 
+Q3 normalization relies a normalization factor that aligns the 
+third quartile gene count value for all samples. This method does not address 
+potential global variations in data distributions or expression ranges. 
+In contrast, quantile normalization, which is widely used to normalize gene 
+expression data derived from microarrays, aligns count values according to 
+the rank of the genes and forces the data of all samples into the same 
+distribution. It is therefore inherent to this method that the difference 
+in count value range or signal-to-noise ratio is no longer dependent on 
+raw data distributions[1].
+
+note that quantile normalization, due to its course method of normalization, 
+may limit the detection of more subtle differences in gene expression.
 
 Graph Q3 value vs negGeoMean of Negatives
 
@@ -999,6 +1065,13 @@ target_Data <- normalize(target_Data,
 # , data_type = "RNA" depricated after 4.1
 ```
 
+Overwrite the dafault q_norm with another normalization method if needed
+
+```{r overwrite q_norm}
+# Normalization options are: default "q_norm", "neg_norm" or "quantile_norm".
+assayDataElement(object = target_Data, elt = "q_norm") <- assayDataElement(object = target_Data, elt = "q_norm") 
+```
+
 # 5.1 Visualize the first 10 segments with each normalization method {.tabset .tabset-pills}
 
 Use the tab-menu to navigate!
@@ -1047,6 +1120,8 @@ boxplot(exprs(target_Data)[,1:8],
 
 ## Q3 normalized {.active}
 
+Q3 (3rd quartile of all selected targets) is the recommended normalization method for NGS data for all targets that are above the limit of quantitation (LOQ). Q3 normalization uses the top 25% of expressers to normalize across ROIs/segments, so it is robust to changes in expression of individual genes and ideal for making comparisons across ROIs/segments.
+
 ```{r}
 boxplot(assayDataElement(target_Data[,1:8], elt = "q_norm"),
         col = "#2CA02C", main = "Q3 Norm Counts",
@@ -1056,6 +1131,8 @@ boxplot(assayDataElement(target_Data[,1:8], elt = "q_norm"),
 
 ## Quantile normalized (testing phase)
 
+The quantile normalization involves first ranking the gene of each sample by magnitude, calculating the average value for genes occupying the same rank, and then substituting the values of all genes occupying that particular rank with this average value. The next step is to reorder the genes of each sample in their original order[2].
+
 ```{r}
 boxplot(assayDataElement(target_Data[,1:8], elt = "quantile_norm"),
         col = "pink", main = "Quantile Norm Counts",
@@ -1064,6 +1141,8 @@ boxplot(assayDataElement(target_Data[,1:8], elt = "quantile_norm"),
 ```
 
 ## Negative probe normalization
+
+For each sample, an RNA-probe-pool-specific negative probe normalization factor was generated on the basis of the geometric mean of negative probes in each pool.
 
 ```{r}
 boxplot(assayDataElement(target_Data[,1:8], elt = "neg_norm"),
@@ -1096,8 +1175,6 @@ ggplot(pData(target_Data),
   geom_point(size = 3) +
   #geom_text_repel(aes(label=row.names(pData(target_Data))), size=2,max.overlaps = 100)+
   theme_bw()
-
-batch_correction_needed = FALSE
 ```
 
 ## 2
@@ -1111,7 +1188,51 @@ ggplot(pData(target_Data),
   theme_bw()
 ```
 
-# 6.2 Batch correction {.tabset .tabset-pills}
+# 6.2 Run tSNE {.tabset .tabset-pills}
+
+Use the tab-menu to navigate!
+
+One common approach to understanding high-plex data is dimension
+reduction. Two common methods are UMAP and tSNE, which are
+non-orthogonally constrained projections that cluster samples based on
+overall gene expression. In this study, we see by either UMAP (from the
+umap package) or tSNE (from the Rtsne package)
+
+## 1
+
+```{r tSNE, fig.width=10,fig.height=8}
+tsne_out <-
+  Rtsne(t(log2(assayDataElement(target_Data , elt = "q_norm"))),
+        perplexity = ncol(target_Data)*.15)
+pData(target_Data)[, c("tSNE1", "tSNE2")] <- tsne_out$Y[, c(1,2)]
+ggplot(pData(target_Data),
+       aes(x = tSNE1, y = tSNE2, shape = slide_name, color = ANN2)) +
+  geom_point(size = 3) +
+  #geom_text_repel(aes(label=row.names(pData(target_Data))), size=2,max.overlaps = 100)+
+  theme_bw()
+```
+
+## 2
+
+```{r, fig.width=10,fig.height=8}
+tsne_out <-
+  Rtsne(t(log2(assayDataElement(target_Data , elt = "q_norm"))),
+        perplexity = ncol(target_Data)*.15)
+pData(target_Data)[, c("tSNE1", "tSNE2")] <- tsne_out$Y[, c(1,2)]
+ggplot(pData(target_Data),
+       aes(x = tSNE1, y = tSNE2, color = ANN3, shape = ANN1)) +
+  geom_point(size = 3) +
+  #geom_text_repel(aes(label=row.names(pData(target_Data))), size=2,max.overlaps = 100)+
+  theme_bw()
+```
+
+If no bias is observed set batch correction needed on FALSE, otherwise TRUE.
+
+```{r check_batch_correction}
+batch_correction_needed = FALSE
+```
+
+# 6.3 Batch correction {.tabset .tabset-pills}
 
 If the data is observed to have a batch effect it can be corrected with the methods: RUV4, LIMMA, or Combat-Seq. Each method is done and the best one is picked and used.
 
@@ -1269,44 +1390,6 @@ ggplot(pData(target_Data),
   theme_bw()
 ```
 
-# 6.3 Run tSNE {.tabset .tabset-pills}
-
-Use the tab-menu to navigate!
-
-One common approach to understanding high-plex data is dimension
-reduction. Two common methods are UMAP and tSNE, which are
-non-orthogonally constrained projections that cluster samples based on
-overall gene expression. In this study, we see by either UMAP (from the
-umap package) or tSNE (from the Rtsne package)
-
-## 1
-
-```{r tSNE, fig.width=10,fig.height=8}
-tsne_out <-
-  Rtsne(t(log2(assayDataElement(target_Data , elt = "q_norm"))),
-        perplexity = ncol(target_Data)*.15)
-pData(target_Data)[, c("tSNE1", "tSNE2")] <- tsne_out$Y[, c(1,2)]
-ggplot(pData(target_Data),
-       aes(x = tSNE1, y = tSNE2, shape = slide_name, color = ANN2)) +
-  geom_point(size = 3) +
-  #geom_text_repel(aes(label=row.names(pData(target_Data))), size=2,max.overlaps = 100)+
-  theme_bw()
-```
-
-## 2
-
-```{r, fig.width=10,fig.height=8}
-tsne_out <-
-  Rtsne(t(log2(assayDataElement(target_Data , elt = "q_norm"))),
-        perplexity = ncol(target_Data)*.15)
-pData(target_Data)[, c("tSNE1", "tSNE2")] <- tsne_out$Y[, c(1,2)]
-ggplot(pData(target_Data),
-       aes(x = tSNE1, y = tSNE2, color = ANN3, shape = ANN1)) +
-  geom_point(size = 3) +
-  #geom_text_repel(aes(label=row.names(pData(target_Data))), size=2,max.overlaps = 100)+
-  theme_bw()
-```
-
 # 6.4 Clustering high CV Genes {.tabset .tabset-pills}
 
 Another approach to explore the data is to calculate the coefficient of
@@ -1347,7 +1430,20 @@ datatable(as.data.frame(CV_dat),
 
 ## Heatmap genes in the top 3rd of the CV values {.active}
 
+For heatmap clustering methods see: 
+General heatmap info:
+https://www.rdocumentation.org/packages/pheatmap/versions/1.0.12/topics/pheatmap
+Distance methods further explained:
+https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/dist
+clustering methods further explained:
+https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/hclust
+
 ```{r CVheatmap, fig.width=20,fig.height=15}
+# choose clustering methods for heatmaps
+clust_method <- "average"    # options: average, ward.D, ward.D2, single, complete, mcquitty, median and centroid.
+# choose clustering distance methods for heatmaps
+dist_method <- "correlation" # options: correlation, euclidean, maximum, manhattan, canberra, binary and minkowski.
+
 GOI <- names(CV_dat)[CV_dat > quantile(CV_dat, 0.75)]
 
 pheatmap(assayDataElement(target_Data[GOI, ], elt = "log_q"),
@@ -1357,9 +1453,9 @@ pheatmap(assayDataElement(target_Data[GOI, ], elt = "log_q"),
          show_rownames = FALSE, show_colnames = TRUE,
          border_color = NA,
          drop_levels = TRUE,
-         clustering_method = "average",
-         clustering_distance_rows = "correlation",
-         clustering_distance_cols = "correlation",
+         clustering_method = clust_method,
+         clustering_distance_rows = dist_method,
+         clustering_distance_cols = dist_method,
          breaks = seq(-3, 3, 0.05),
          color = colorRampPalette(c("purple3", "black", "yellow2"))(120),
          annotation_colors = color_list,
@@ -1375,8 +1471,12 @@ log_q <-as.data.frame(assayDataElement(target_Data, elt= "log_q"))
 
 # 6.5.0 Create subset of data
 
+If no subset is needed set subset_needed on FALSE, otherwise TRUE.
+
 ```{r define_active_aois}
 # determine AOIs to use
+subset_needed <- FALSE
+
 #active_aois<-rownames(ann)[ann$patient=="p4"]
 active_aois<- names(as.data.frame(assayDataElement(target_Data, elt= "exprs")))
 ```
@@ -1413,7 +1513,12 @@ datatable(as.data.frame(CV_dat),
 
 ## Heatmap on of subset, genes in the top 3rd of the CV values {.active}
 
-```{r, fig.width=20,fig.height=15}
+```{r, fig.width=20,fig.height=15, eval=subset_needed}
+# choose clustering methods for heatmaps
+clust_method <- "average"    # options: average, ward.D, ward.D2, single, complete, mcquitty, median and centroid.
+# choose clustering distance methods for heatmaps
+dist_method <- "correlation" # options: correlation, euclidean, maximum, manhattan, canberra, binary and minkowski.
+
 # Identify genes in the top 3rd of the CV values
 GOI <- names(CV_dat)[CV_dat > quantile(CV_dat, 0.75)]
 pheatmap(assayDataElement(target_Data[GOI,active_aois ], elt = "log_q"),
@@ -1423,9 +1528,9 @@ pheatmap(assayDataElement(target_Data[GOI,active_aois ], elt = "log_q"),
         cutree_rows = 2,
         show_rownames = FALSE, show_colnames = TRUE,
         border_color = NA,
-        clustering_method = "average",
-        clustering_distance_rows = "correlation",
-        clustering_distance_cols = "correlation",
+        clustering_method = clust_method,
+        clustering_distance_rows = dist_method,
+        clustering_distance_cols = dist_method,
         breaks = seq(-3, 3, 0.05),
         color = colorRampPalette(c("purple3", "black", "yellow2"))(120),
        annotation_colors = color_list,
@@ -2046,7 +2151,7 @@ for(c in unique(fgsea_results_all$Contrast) ) {
   
   # Graph results
   dynplot <- ggplot(fgsea_results_slice,
-         aes(x = NES, y = -log10(pval),
+         aes(x = ES, y = -log10(pval),
              color = Color, label = pathway)) +
       geom_vline(xintercept = c(fc_threshold,-fc_threshold), lty = "dashed") +
       geom_hline(yintercept = -log10(0.05), lty = "dashed") +
@@ -2075,10 +2180,46 @@ for(c in unique(fgsea_results_all$Contrast) ) {
 plt
 ```
 
+## Barplot pathways
+
+Clear vizualization of the top 15 positive and negative expressed Reactome pathways. Pathways with a adjusted p-value of 0.05 or higher will be presented as red 
+and below 0.05 as green.
+
+Fgsea returns results from the given databases. To avoid one database overshadowing the other, results have been split to show database specific results. 
+Reactome is shown in barplots and KEGG as a pathway image including highlighted genes. 
+
+```{r horizontal pathway bar plot, fig.width=20,fig.height=20}
+top_all <- c()
+for (contrast in unique(fgsea_reactome$Contrast)) {
+    # active_group1 <- contrast_list[contrast][[1]][[1]]
+    # active_group2 <- contrast_list[contrast][[1]][[2]]
+    # ind <- pData(target_Data)[pData(target_Data)$ANN2 == active_group1 | pData(target_Data)$ANN2 == active_group2]
+    top <- fgsea_reactome[fgsea_reactome$Contrast == contrast]
+    toppos <- top[order(top$NES, decreasing = TRUE)][0:15]
+    topneg <- top[order(top$NES, decreasing = FALSE)][0:15]
+    top <- rbind(toppos, topneg)
+    
+    top$Color[top$padj < 0.05] <- "padj < 0.05"
+    top$Color[top$padj == 0.05 | top$padj > 0.05] <- "padj > 0.05"
+    top_all <- rbind(top_all, top)
+    barplot <- ggplot(top,aes(x=reorder(pathway, NES),y=NES,fill=Color)) + 
+      scale_x_discrete(labels = function(x) str_wrap(x, width = 100)) + 
+      geom_col(position="dodge") + scale_fill_manual(values = c("#2ECC71", "#E74C3C")) +
+      ggtitle(paste("Top 15 + and - NES reactome pathways from", contrast)) + 
+      xlab("pathway") + ylab("Normalized Enrichment Score") +
+      coord_flip() + 
+      theme(text = element_text(size = 20)) +
+      theme(panel.background = element_blank())
+      #facet_wrap(~Contrast, scales = "free_y")
+    print(barplot)
+}
+
+```
+
 # 8.6 Visualize KEGG pathway
 
 Get pathway visualization from KEGG. clusterProfiler grabs the KEGG pathway IDs and combined with pathview it can download a pathway image from the KEGG database.
-The LMM results are given with the pathway id to visualize up and down regulated genes.
+The LMM results are given with the pathway id to visualize up and down regulated genes. It will pick the most significant pathway if not manually specified.
 
 ```{r}
 get_wp_gmtfile <- function() {
@@ -2147,38 +2288,6 @@ viewPath <- pathview(gene.data  = genelist,
                      out.suffix = "genesinfo", kegg.native = T, same.layer = F)
 img <- readPNG(paste(pathwayid, ".genesinfo.png", sep = ""))
 grid::grid.raster(img)
-```
-
-## Barplot pathways
-
-Clear vizualization of the top 15 positive and negative expressed Reactome pathways. Pathways with a adjusted p-value of 0.05 or higher will be presented as red 
-and below 0.05 as green.
-
-```{r horizontal pathway bar plot, fig.width=20,fig.height=20}
-top_all <- c()
-for (contrast in unique(fgsea_reactome$Contrast)) {
-    # active_group1 <- contrast_list[contrast][[1]][[1]]
-    # active_group2 <- contrast_list[contrast][[1]][[2]]
-    # ind <- pData(target_Data)[pData(target_Data)$ANN2 == active_group1 | pData(target_Data)$ANN2 == active_group2]
-    top <- fgsea_reactome[fgsea_reactome$Contrast == contrast]
-    toppos <- top[order(top$NES, decreasing = TRUE)][0:15]
-    topneg <- top[order(top$NES, decreasing = FALSE)][0:15]
-    top <- rbind(toppos, topneg)
-    
-    top$Color[top$padj < 0.05] <- "padj < 0.05"
-    top$Color[top$padj == 0.05 | top$padj > 0.05] <- "padj > 0.05"
-    top_all <- rbind(top_all, top)
-    barplot <- ggplot(top,aes(x=reorder(pathway, NES),y=NES,fill=Color)) + 
-      scale_x_discrete(labels = function(x) str_wrap(x, width = 100)) + 
-      geom_col(position="dodge") + scale_fill_manual(values = c("#2ECC71", "#E74C3C")) +
-      ggtitle(paste("Top 15 + and - NES reactome pathways from", contrast)) + 
-      xlab("pathway") + ylab("Normalized Enrichment Score") +
-      coord_flip() + 
-      theme(text = element_text(size = 20)) +
-      theme(panel.background = element_blank())
-      #facet_wrap(~Contrast, scales = "free_y")
-    print(barplot)
-}
 ```
 
 # 9 Spatial Deconvolution
@@ -3059,6 +3168,12 @@ sessionInfo()
 ```
 
 ## 12.2 References
+
+1 Levi van Hijfte, Marjolein Geurts, Wies R. Vallentgoed, Paul H.C. Eilers, Peter A.E. Sillevis Smitt, Reno Debets, Pim J. French,
+Alternative normalization and analysis pipeline to address systematic bias in NanoString GeoMx Digital Spatial Profiling data,
+iScience, Volume 26, Issue 1, 2023, 105760, ISSN 2589-0042, https://doi.org/10.1016/j.isci.2022.105760.
+
+2 Zhao, Y., Wong, L. & Goh, W.W.B. How to do quantile normalization correctly for gene expression data analyses. Sci Rep 10, 15534 (2020). https://doi.org/10.1038/s41598-020-72664-6
 
 ![](http://useq.nl/wp-content/uploads/2022/12/decoration-stroke-flat.png)
 
